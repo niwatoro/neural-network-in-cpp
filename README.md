@@ -25,7 +25,8 @@ No speciall configuration should be necessary.
     - `t10k-labels-idx1-ubyte`
     - `train-images-idx3-ubyte`
     - `train-labels-idx1-ubyte`
-2. Compile and run `main.cpp`
-    ```bash
-    g++ main.cpp -o mnist_classifier && ./mnist_classifier
-    ```
+2. Compile and run `main.cpp`.
+
+```bash
+g++ main.cpp -o mnist_classifier && ./mnist_classifier
+```
