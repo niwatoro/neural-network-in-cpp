@@ -10,10 +10,12 @@ No external dependencies are required. This project relies solely on standard C+
 
 ## Libraries
 The following standard libraries are used:
+- `algorithm`
 - `cmath`
 - `fstream`
 - `iostream`
 - `limits`
+- `random`
 - `vector`
 
 ## Setup
