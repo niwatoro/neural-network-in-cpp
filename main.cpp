@@ -140,8 +140,9 @@ class NeuralNetwork {
   int calculate_accuracy(const vector<double>&, const vector<double>&);
 
   void train(const vector<vector<double> >&, const vector<vector<double> >&,
+             const vector<vector<double> >&, const vector<vector<double> >&,
              const int);
-  void test(const vector<vector<double> >&, const vector<vector<double> >&);
+  float test(const vector<vector<double> >&, const vector<vector<double> >&);
   vector<double> predict(const vector<double>&);
 };
 
@@ -455,6 +456,8 @@ int NeuralNetwork::calculate_accuracy(const vector<double>& x,
 
 void NeuralNetwork::train(const vector<vector<double> >& images,
                           const vector<vector<double> >& labels,
+                          const vector<vector<double> >& test_images,
+                          const vector<vector<double> >& test_labels,
                           const int epochs) {
   const int dataset_size = images.size();
   const int layer_size = layers.size();
@@ -466,13 +469,15 @@ void NeuralNetwork::train(const vector<vector<double> >& images,
   string file_name = to_string(timestamp) + ".csv";
   ofstream ofs(file_name);
 
-  ofs << "epoch,i,loss,accuracy\n";
+  ofs << "epoch,i,loss,accuracy,test_accuracy\n";
 
   for (int epoch = 0; epoch < epochs; epoch++) {
     double total_loss = 0;
-    int number_of_corrections = 0;
+    float train_accuracy = 0;
+    float test_accuracy = 0;
 
     vector<int> indices(dataset_size);
+
     for (int i = 0; i < dataset_size; i++) {
       indices[i] = i;
     }
@@ -491,13 +496,16 @@ void NeuralNetwork::train(const vector<vector<double> >& images,
 
       ofs << epoch << "," << i << "," << loss << ",";
 
-      if (i % 100 == 0) {
-        const int is_correct = calculate_accuracy(x, t);
-        number_of_corrections += is_correct;
+      if (i % 10000 == 0) {
+        const float tra = test(images, labels);
+        const float tea = test(test_images, test_labels);
 
-        ofs << is_correct << "\n";
+        train_accuracy += tra;
+        test_accuracy += tea;
+
+        ofs << tra << "," << tea << "\n";
       } else {
-        ofs << "-\n";
+        ofs << "-,-\n";
       }
 
       vector<double> dout = loss_layer->backward();
@@ -508,16 +516,18 @@ void NeuralNetwork::train(const vector<vector<double> >& images,
     }
 
     cout << "Epoch: " << epoch + 1 << " / " << epochs
-         << "; Loss: " << total_loss << "; Accuracy: "
-         << ((float)number_of_corrections) / dataset_size * 10000 << " %"
-         << endl;
+         << "; Loss: " << total_loss
+         << "; Accuracy: " << train_accuracy * 10000 / dataset_size * 100
+         << " %"
+         << "; Test accuracy: " << test_accuracy * 10000 / dataset_size * 100
+         << " %" << endl;
   }
 
   ofs.close();
 }
 
-void NeuralNetwork::test(const vector<vector<double> >& images,
-                         const vector<vector<double> >& labels) {
+float NeuralNetwork::test(const vector<vector<double> >& images,
+                          const vector<vector<double> >& labels) {
   const int dataset_size = images.size();
   const int label_size = labels[0].size();
 
@@ -546,16 +556,9 @@ void NeuralNetwork::test(const vector<vector<double> >& images,
     if (label == predicted_label) {
       number_of_corrections++;
     }
-
-    if (i < 10) {
-      cout << "Predicted label: " << predicted_label << endl;
-      cout << "Actual ";
-      (new MnistLoader())->display_image(images[i], labels[i], 28, 28);
-    }
   }
 
-  cout << "Test accuracy: "
-       << ((float)number_of_corrections) / dataset_size * 100 << " %" << endl;
+  return (float)number_of_corrections / dataset_size;
 }
 
 void experiment1() {
@@ -605,14 +608,7 @@ void experiment1() {
   cout << "Training the model..." << endl;
   cout << endl;
 
-  nn.train(train_images, train_labels, 10);
-
-  // test
-  cout << endl;
-  cout << "Testing the model..." << endl;
-  cout << endl;
-
-  nn.test(test_images, test_labels);
+  nn.train(train_images, train_labels, test_images, test_labels, 10);
 }
 
 void experiment2() {
@@ -631,7 +627,6 @@ void experiment2() {
     test_labels = mnist_loader.read_labels("./t10k-labels-idx1-ubyte");
 
     mnist_loader.noise_images(train_images, i);
-    mnist_loader.noise_images(test_images, i);
 
     cout << endl;
     cout << "Displaying an exmple image..." << endl;
@@ -666,12 +661,7 @@ void experiment2() {
     cout << "Training the model..." << endl;
     cout << endl;
 
-    nn.train(train_images, train_labels, 10);
-
-    // test
-    cout << endl;
-    cout << "Testing the model..." << endl;
-    cout << endl;
+    nn.train(train_images, train_labels, test_images, test_labels, 10);
   }
 }
 
