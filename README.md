@@ -20,7 +20,10 @@ The following standard libraries are used:
 - `vector`
 
 ## Setup
-No speciall configuration should be necessary.
+Install `Eigen`.
+```bash
+brew install eigen
+```
 
 ## Usage
 1. Place the following MNIST dataset files in the root directory:
