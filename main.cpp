@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <eigen3/Eigen/Dense>
 #include <fstream>
 #include <iostream>
 #include <limits>
@@ -25,6 +26,7 @@ class MnistLoader {
 
   void display_image(const vector<double>&, const vector<double>&, const int,
                      const int) const;
+  void save_csv(const vector<double>&) const;
 };
 
 // layer
@@ -50,7 +52,7 @@ class Layer {
 class LinearLayer : public Layer {
   vector<double> input;
 
-  vector<vector<double> > weights;
+  vector<vector<double> > weight;
   vector<double> bias;
 
  public:
@@ -60,16 +62,20 @@ class LinearLayer : public Layer {
 
     input = vector<double>(input_size, 0);
 
-    weights = vector<vector<double> >(input_size, vector<double>(output_size));
+    weight = vector<vector<double> >(input_size, vector<double>(output_size));
     bias = vector<double>(output_size, 0);
 
     for (int i = 0; i < input_size; i++) {
       for (int j = 0; j < output_size; j++) {
-        weights[i][j] = 0.01 * (double)rand() / RAND_MAX;
+        weight[i][j] = 0.01 * (double)rand() / RAND_MAX;
       }
     }
   };
   ~LinearLayer() {}
+
+  vector<double> find_maximizing_input() const;
+  vector<double> find_receptive_field() const;
+  void save_weight() const;
 
   vector<double> forward(const vector<double>&);
   vector<double> backward(const vector<double>&);
@@ -137,7 +143,6 @@ class NeuralNetwork {
   void add_loss_layer(LossLayer* ll) { loss_layer = ll; }
 
   double calculate_loss(const vector<double>&, const vector<double>&);
-  int calculate_accuracy(const vector<double>&, const vector<double>&);
 
   void train(const vector<vector<double> >&, const vector<vector<double> >&,
              const vector<vector<double> >&, const vector<vector<double> >&,
@@ -145,6 +150,26 @@ class NeuralNetwork {
   float test(const vector<vector<double> >&, const vector<vector<double> >&);
   vector<double> predict(const vector<double>&);
 };
+
+// utils
+Eigen::MatrixXd convert_to_eigen_matrix(const vector<vector<double> >& vec) {
+  const int rows = vec.size();
+  const int cols = vec[0].size();
+
+  Eigen::MatrixXd mat(rows, cols);
+
+  for (int i = 0; i < rows; i++) {
+    for (int j = 0; j < cols; j++) {
+      mat(i, j) = vec[i][j];
+    }
+  }
+
+  return mat;
+}
+
+vector<double> convert_to_std_vector(const Eigen::VectorXd& vec) {
+  return vector<double>(vec.data(), vec.data() + vec.size());
+}
 
 // methods
 // mnist loader
@@ -279,8 +304,76 @@ void MnistLoader::display_image(const vector<double>& image,
   }
 }
 
+void MnistLoader::save_csv(const vector<double>& x) const {
+  time_t timestamp;
+  time(&timestamp);
+
+  const string file_name =
+      to_string(timestamp) + "-" + to_string(rand() % 100000) + ".csv";
+  ofstream ofs(file_name);
+
+  for (int i = 0; i < x.size(); i++) {
+    ofs << x[i] << ",";
+  }
+
+  ofs.close();
+
+  cout << "Vector saved at " << file_name << endl;
+}
+
 // layer
 // linear layer
+vector<double> LinearLayer::find_maximizing_input() const {
+  const Eigen::MatrixXd weight_matrix = convert_to_eigen_matrix(weight);
+  const Eigen::JacobiSVD<Eigen::MatrixXd> svd(
+      weight_matrix, Eigen::ComputeThinU | Eigen::ComputeThinV);
+
+  const double max_singular_value = svd.singularValues()(0);
+
+  Eigen::VectorXd left_singular_vector = svd.matrixU().col(0);
+
+  return convert_to_std_vector(left_singular_vector);
+}
+
+vector<double> LinearLayer::find_receptive_field() const {
+  const int input_size = get_input_size();
+  const int output_size = get_output_size();
+
+  vector<double> input(input_size, 0);
+
+  for (int i = 0; i < input_size; i++) {
+    for (int j = 0; j < output_size; j++) {
+      input[i] += weight[i][j];
+    }
+  }
+
+  return input;
+}
+
+void LinearLayer::save_weight() const {
+  const int rows = weight.size();
+  const int cols = weight[0].size();
+
+  time_t timestamp;
+  time(&timestamp);
+
+  const string file_name =
+      to_string(timestamp) + "-" + to_string(rand() % 100000) + ".csv";
+
+  ofstream ofs(file_name);
+
+  for (int i = 0; i < rows; i++) {
+    for (int j = 0; j < cols; j++) {
+      ofs << weight[i][j] << ",";
+    }
+    ofs << endl;
+  }
+
+  ofs.close();
+
+  cout << "Weight " << rows << "x" << cols << " saved at " << file_name << endl;
+}
+
 vector<double> LinearLayer::forward(const vector<double>& x) {
   const int input_size = get_input_size();
   const int output_size = get_output_size();
@@ -291,7 +384,7 @@ vector<double> LinearLayer::forward(const vector<double>& x) {
 
   for (int i = 0; i < output_size; i++) {
     for (int j = 0; j < input_size; j++) {
-      y[i] += input[j] * weights[j][i];
+      y[i] += input[j] * weight[j][i];
     }
     y[i] += bias[i];
   }
@@ -309,13 +402,13 @@ vector<double> LinearLayer::backward(const vector<double>& dout) {
 
   for (int i = 0; i < input_size; i++) {
     for (int j = 0; j < output_size; j++) {
-      dx[i] += dout[j] * weights[i][j];
+      dx[i] += dout[j] * weight[i][j];
     }
   }
 
   for (int i = 0; i < input_size; i++) {
     for (int j = 0; j < output_size; j++) {
-      weights[i][j] -= learning_rate * input[i] * dout[j];
+      weight[i][j] -= learning_rate * input[i] * dout[j];
     }
   }
 
@@ -430,30 +523,6 @@ double NeuralNetwork::calculate_loss(const vector<double>& x,
   return loss_layer->forward(y, t);
 }
 
-int NeuralNetwork::calculate_accuracy(const vector<double>& x,
-                                      const vector<double>& t) {
-  const vector<double> y = predict(x);
-
-  int predicted_label = 0;
-  int label = 0;
-  double confidence = -numeric_limits<double>::infinity();
-
-  for (int i = 0; i < y.size(); i++) {
-    if (y[i] > confidence) {
-      predicted_label = i;
-      confidence = y[i];
-    }
-    if (t[i] > 0.5) {
-      label = i;
-    }
-  }
-
-  if (predicted_label == label) {
-    return 1;
-  }
-  return 0;
-}
-
 void NeuralNetwork::train(const vector<vector<double> >& images,
                           const vector<vector<double> >& labels,
                           const vector<vector<double> >& test_images,
@@ -466,7 +535,8 @@ void NeuralNetwork::train(const vector<vector<double> >& images,
   time_t timestamp;
   time(&timestamp);
 
-  string file_name = to_string(timestamp) + ".csv";
+  string file_name =
+      to_string(timestamp) + "-" + to_string(rand() % 100000) + ".csv";
   ofstream ofs(file_name);
 
   ofs << "epoch,i,loss,accuracy,test_accuracy\n";
@@ -496,6 +566,12 @@ void NeuralNetwork::train(const vector<vector<double> >& images,
 
       ofs << epoch << "," << i << "," << loss << ",";
 
+      vector<double> dout = loss_layer->backward();
+
+      for (int i = layers.size() - 1; i >= 0; i--) {
+        dout = layers[i]->backward(dout);
+      }
+
       if (i % 10000 == 0) {
         const float tra = test(images, labels);
         const float tea = test(test_images, test_labels);
@@ -506,12 +582,6 @@ void NeuralNetwork::train(const vector<vector<double> >& images,
         ofs << tra << "," << tea << "\n";
       } else {
         ofs << "-,-\n";
-      }
-
-      vector<double> dout = loss_layer->backward();
-
-      for (int i = layers.size() - 1; i >= 0; i--) {
-        dout = layers[i]->backward(dout);
       }
     }
 
@@ -524,6 +594,10 @@ void NeuralNetwork::train(const vector<vector<double> >& images,
   }
 
   ofs.close();
+
+  cout << endl;
+  cout << "Finished training." << endl;
+  cout << "Training statistics saved at " << file_name << endl;
 }
 
 float NeuralNetwork::test(const vector<vector<double> >& images,
@@ -567,6 +641,7 @@ void experiment1() {
   vector<vector<double> > train_images, test_images;
   vector<vector<double> > train_labels, test_labels;
 
+  cout << endl;
   cout << "Loading MNIST dataset..." << endl;
   cout << endl;
 
@@ -612,7 +687,76 @@ void experiment1() {
 }
 
 void experiment2() {
-  for (float i = 0.05; i <= 0.25; i += 0.05) {
+  const int ns[] = {4, 16, 64};
+
+  for (int n : ns) {
+    for (float i = 0.0; i <= 0.25; i += 0.05) {
+      cout << endl;
+      cout << "n = " << n << "; d = " << i * 100 << " %" << endl;
+      cout << endl;
+
+      // load data
+      MnistLoader mnist_loader;
+      vector<vector<double> > train_images, test_images;
+      vector<vector<double> > train_labels, test_labels;
+
+      cout << "Loading MNIST dataset..." << endl;
+      cout << endl;
+
+      train_images =
+          mnist_loader.read_images("./train-images-idx3-ubyte", true);
+      test_images = mnist_loader.read_images("./t10k-images-idx3-ubyte", false);
+      train_labels = mnist_loader.read_labels("./train-labels-idx1-ubyte");
+      test_labels = mnist_loader.read_labels("./t10k-labels-idx1-ubyte");
+
+      mnist_loader.noise_images(train_images, i);
+
+      cout << endl;
+      cout << "Displaying an exmple image..." << endl;
+      cout << endl;
+
+      int display_index = rand() % train_images.size();
+
+      mnist_loader.display_image(
+          train_images[display_index], train_labels[display_index],
+          mnist_loader.get_width(), mnist_loader.get_height());
+
+      // build the model
+      NeuralNetwork nn = NeuralNetwork(1e-2);
+
+      Layer* layer1 = new LinearLayer(
+          mnist_loader.get_width() * mnist_loader.get_height(), n);
+      Layer* layer2 = new ReLULayer(n);
+      Layer* layer3 = new LinearLayer(n, 10);
+      Layer* layer4 = new ReLULayer(10);
+      Layer* layer5 = new LinearLayer(10, train_labels[0].size());
+      LossLayer* loss_layer = new LossLayer(10);
+
+      nn.add_layer(layer1);
+      nn.add_layer(layer2);
+      nn.add_layer(layer3);
+      nn.add_layer(layer4);
+      nn.add_layer(layer5);
+      nn.add_loss_layer(loss_layer);
+
+      // train
+      cout << endl;
+      cout << "Training the model..." << endl;
+      cout << endl;
+
+      nn.train(train_images, train_labels, test_images, test_labels, 3);
+    }
+  }
+}
+
+void experiment3() {
+  const int ns[] = {8, 16};
+
+  for (int n : ns) {
+    cout << endl;
+    cout << "n = " << n << endl;
+    cout << endl;
+
     // load data
     MnistLoader mnist_loader;
     vector<vector<double> > train_images, test_images;
@@ -625,8 +769,6 @@ void experiment2() {
     test_images = mnist_loader.read_images("./t10k-images-idx3-ubyte", false);
     train_labels = mnist_loader.read_labels("./train-labels-idx1-ubyte");
     test_labels = mnist_loader.read_labels("./t10k-labels-idx1-ubyte");
-
-    mnist_loader.noise_images(train_images, i);
 
     cout << endl;
     cout << "Displaying an exmple image..." << endl;
@@ -641,12 +783,12 @@ void experiment2() {
     // build the model
     NeuralNetwork nn = NeuralNetwork(1e-2);
 
-    Layer* layer1 = new LinearLayer(
-        mnist_loader.get_width() * mnist_loader.get_height(), 16);
-    Layer* layer2 = new ReLULayer(16);
-    Layer* layer3 = new LinearLayer(16, 10);
+    LinearLayer* layer1 = new LinearLayer(
+        mnist_loader.get_width() * mnist_loader.get_height(), n);
+    Layer* layer2 = new ReLULayer(n);
+    LinearLayer* layer3 = new LinearLayer(n, 10);
     Layer* layer4 = new ReLULayer(10);
-    Layer* layer5 = new LinearLayer(10, train_labels[0].size());
+    LinearLayer* layer5 = new LinearLayer(10, train_labels[0].size());
     LossLayer* loss_layer = new LossLayer(10);
 
     nn.add_layer(layer1);
@@ -661,13 +803,109 @@ void experiment2() {
     cout << "Training the model..." << endl;
     cout << endl;
 
-    nn.train(train_images, train_labels, test_images, test_labels, 10);
+    nn.train(train_images, train_labels, test_images, test_labels, 3);
+
+    // find maximizing inputs
+    cout << endl;
+    cout << "Finding maxizing inputs..." << endl;
+    cout << endl;
+
+    mnist_loader.save_csv(layer1->find_maximizing_input());
+    mnist_loader.save_csv(layer3->find_maximizing_input());
+    mnist_loader.save_csv(layer5->find_maximizing_input());
+
+    // find receptive fields
+    cout << endl;
+    cout << "Finiding receptive fields..." << endl;
+    cout << endl;
+
+    mnist_loader.save_csv(layer1->find_receptive_field());
+    mnist_loader.save_csv(layer3->find_receptive_field());
+    mnist_loader.save_csv(layer5->find_receptive_field());
+
+    // save weights
+    cout << endl;
+    cout << "Saving weights..." << endl;
+    cout << endl;
+
+    layer1->save_weight();
+    layer3->save_weight();
+    layer5->save_weight();
   }
 }
 
-void experiment3() {}
+void experiment4() {
+  const int ns[] = {8, 16, 32};
 
-void experiment4() {}
+  for (int l = 0; l < 3; l++) {
+    for (int n : ns) {
+      cout << endl;
+      cout << "l = " << l << "; n = " << n << endl;
+      cout << endl;
+
+      // load data
+      MnistLoader mnist_loader;
+      vector<vector<double> > train_images, test_images;
+      vector<vector<double> > train_labels, test_labels;
+
+      cout << "Loading MNIST dataset..." << endl;
+      cout << endl;
+
+      train_images =
+          mnist_loader.read_images("./train-images-idx3-ubyte", true);
+      test_images = mnist_loader.read_images("./t10k-images-idx3-ubyte", false);
+      train_labels = mnist_loader.read_labels("./train-labels-idx1-ubyte");
+      test_labels = mnist_loader.read_labels("./t10k-labels-idx1-ubyte");
+
+      cout << endl;
+      cout << "Displaying an exmple image..." << endl;
+      cout << endl;
+
+      int display_index = rand() % train_images.size();
+
+      mnist_loader.display_image(
+          train_images[display_index], train_labels[display_index],
+          mnist_loader.get_width(), mnist_loader.get_height());
+
+      // build the model
+      NeuralNetwork nn = NeuralNetwork(1e-2);
+
+      Layer* layer1 = new LinearLayer(
+          mnist_loader.get_width() * mnist_loader.get_height(), n);
+      Layer* layer2 = new ReLULayer(n);
+      Layer* layer3 = new LinearLayer(n, 10);
+      Layer* layer4 = new ReLULayer(10);
+      Layer* layer5 = new LinearLayer(10, 10);
+      Layer* layer6 = new ReLULayer(10);
+      Layer* layer7 = new LinearLayer(10, 10);
+      Layer* layer8 = new ReLULayer(10);
+      Layer* layer9 = new LinearLayer(10, train_labels[0].size());
+      LossLayer* loss_layer = new LossLayer(10);
+
+      nn.add_layer(layer1);
+      nn.add_layer(layer2);
+      nn.add_layer(layer3);
+      nn.add_layer(layer4);
+      if (l > 0) {
+        nn.add_layer(layer5);
+        nn.add_layer(layer6);
+      }
+      if (l > 1) {
+        nn.add_layer(layer7);
+        nn.add_layer(layer8);
+      }
+      nn.add_layer(layer9);
+      nn.add_loss_layer(loss_layer);
+
+      // train
+      cout << endl;
+      cout << "Training the model..." << endl;
+      cout << endl;
+
+      nn.train(train_images, train_labels, test_images, test_labels, 10);
+    }
+  }
+}
 
 int main() {
   // initialize
@@ -675,28 +913,24 @@ int main() {
 
   // experiment 1
   cout << "========Experiment-1========" << endl;
-  cout << endl;
 
   experiment1();
 
   // experiment 2
   cout << endl;
   cout << "========Experiment-2========" << endl;
-  cout << endl;
 
   experiment2();
 
   // experiment 3
   cout << endl;
   cout << "========Experiment-3========" << endl;
-  cout << endl;
 
   experiment3();
 
   // experiment 4
   cout << endl;
   cout << "========Experiment-4========" << endl;
-  cout << endl;
 
   experiment4();
 }
